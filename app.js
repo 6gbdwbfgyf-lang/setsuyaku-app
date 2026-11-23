@@ -2,7 +2,7 @@
 
 /* ===== データ（iPhoneの中に保存） ===== */
 const KEY = 'setsuyaku-kakeibo-v1';
-const PALETTE = ['#1F7A55', '#3B82C4', '#8A63C9', '#D9822B', '#C94F7C', '#6B7280', '#B08900', '#94A3B8', '#0E8A8A', '#B4443A'];
+const PALETTE = ['#3E7D5A', '#3D6FA8', '#7A5BA8', '#C27A2C', '#B24C72', '#5F6B7A', '#9C7F1E', '#8A94A6', '#2E7F86', '#B03A28'];
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
 function defaultData() {
@@ -10,14 +10,14 @@ function defaultData() {
   return {
     version: 1,
     categories: [
-      c('食費', '#1F7A55', ['朝食', '昼食', '夕食', 'カフェ', '食料品']),
-      c('日用品', '#3B82C4', ['消耗品', '衣類', 'その他']),
-      c('交通', '#8A63C9', ['電車', 'バス', 'タクシー']),
-      c('趣味', '#D9822B', ['本', 'ゲーム', '映画', 'その他']),
-      c('交際費', '#C94F7C', ['飲み会', 'プレゼント']),
-      c('光熱・通信', '#6B7280', ['電気', 'ガス', '水道', 'スマホ']),
-      c('住まい', '#B08900', ['家賃', '家具']),
-      c('その他', '#94A3B8', ['その他']),
+      c('食費', '#3E7D5A', ['朝食', '昼食', '夕食', 'カフェ', '食料品']),
+      c('日用品', '#3D6FA8', ['消耗品', '衣類', 'その他']),
+      c('交通', '#7A5BA8', ['電車', 'バス', 'タクシー']),
+      c('趣味', '#C27A2C', ['本', 'ゲーム', '映画', 'その他']),
+      c('交際費', '#B24C72', ['飲み会', 'プレゼント']),
+      c('光熱・通信', '#5F6B7A', ['電気', 'ガス', '水道', 'スマホ']),
+      c('住まい', '#9C7F1E', ['家賃', '家具']),
+      c('その他', '#8A94A6', ['その他']),
     ],
     entries: [],
   };
@@ -27,6 +27,9 @@ let data = null;
 try { data = JSON.parse(localStorage.getItem(KEY)); } catch (e) { data = null; }
 if (!isValidData(data)) data = defaultData();
 if (!Array.isArray(data.fixed)) data.fixed = [];
+// 前のデザインの色を新しい落ち着いた色に置き換える
+const OLD_COLORS = {"#1F7A55": "#3E7D5A", "#3B82C4": "#3D6FA8", "#8A63C9": "#7A5BA8", "#D9822B": "#C27A2C", "#C94F7C": "#B24C72", "#6B7280": "#5F6B7A", "#B08900": "#9C7F1E", "#94A3B8": "#8A94A6"};
+data.categories.forEach((c) => { if (OLD_COLORS[c.color]) c.color = OLD_COLORS[c.color]; });
 
 function isValidData(d) {
   return d && Array.isArray(d.categories) && Array.isArray(d.entries);
@@ -53,7 +56,7 @@ function dateLabel(s) {
   return `${m}月${d}日（${WD[new Date(y, m - 1, d).getDay()]}）`;
 }
 function findCat(id) {
-  return data.categories.find((c) => c.id === id) || { id, name: '（削除したカテゴリ）', color: '#94A3B8', subs: [] };
+  return data.categories.find((c) => c.id === id) || { id, name: '（削除したカテゴリ）', color: '#8A94A6', subs: [] };
 }
 function subName(cat, id) {
   const s = cat.subs.find((x) => x.id === id);
@@ -128,95 +131,127 @@ const st = {
 function renderInput() {
   const f = st.form;
   const cat = data.categories.find((c) => c.id === f.catId);
-  const amountText = f.amount ? Number(f.amount).toLocaleString('ja-JP') : '';
+  const sub = cat ? subName(cat, f.subId) : '';
+  const t = new Date();
+  const monthSum = sum(monthEntries(t.getFullYear(), t.getMonth() + 1));
+  const amountText = f.amount ? Number(f.amount).toLocaleString('ja-JP') : '0';
+  const key = (k) => `<button class="key num" data-act="key" data-k="${k}">${k}</button>`;
   return `
   <header class="top">
-    <h1>${f.editingId ? '記録を修正' : '支出を記録'}</h1>
-    <label class="datechip"><span id="datelabel">${dateLabel(f.date)}</span><input type="date" id="f-date" value="${f.date}" aria-label="日付"></label>
+    <label class="datechip"><span id="datelabel">${dateLabel(f.date)}</span><input type="date" id="f-date" value="${f.date}" aria-label="日付を変える"></label>
+    ${f.editingId ? '<span class="editing">記録を修正中</span>' : `<span class="monthsum">今月 <b class="num">${yen(monthSum)}</b></span>`}
   </header>
-  <label class="amount"><span>¥</span><input id="f-amount" inputmode="numeric" placeholder="0" value="${amountText}" autocomplete="off" aria-label="金額"></label>
-  <p class="label">大カテゴリ</p>
-  <div class="catgrid">
-    ${data.categories.map((c) => `<button class="cat ${c.id === f.catId ? 'on' : ''}" data-act="pick-cat" data-id="${c.id}" style="--c:${c.color}"><i></i>${esc(c.name)}</button>`).join('')}
+  <div class="slip" id="slip">
+    <div class="slip-main">
+      <span class="slip-cat">${cat ? `<i style="background:${cat.color}"></i>${esc(cat.name)}${sub ? '／' + esc(sub) : ''}` : 'カテゴリを選ぶ'}</span>
+      <span class="slip-amt num${f.amount ? '' : ' zero'}" id="amt" aria-live="polite">¥${amountText}</span>
+    </div>
+    <input id="f-memo" class="slip-memo" value="${esc(f.memo)}" maxlength="60" placeholder="メモ（なくてもOK）" autocomplete="off" aria-label="メモ">
   </div>
-  ${cat && cat.subs.length ? `
-  <p class="label">小カテゴリ（${esc(cat.name)}）</p>
-  <div class="chips">
-    ${cat.subs.map((s) => `<button class="chip ${s.id === f.subId ? 'on' : ''}" data-act="pick-sub" data-id="${s.id}">${esc(s.name)}</button>`).join('')}
+  <div class="ctabs">
+    ${data.categories.map((c) => `<button class="ctab${c.id === f.catId ? ' on' : ''}" data-act="pick-cat" data-id="${c.id}" style="--c:${c.color}">${esc(c.name)}</button>`).join('')}
+  </div>
+  ${cat && cat.subs.length ? `<div class="subrow">
+    ${cat.subs.map((s) => `<button class="chip${s.id === f.subId ? ' on' : ''}" data-act="pick-sub" data-id="${s.id}">${esc(s.name)}</button>`).join('')}
   </div>` : ''}
-  <label class="label" for="f-memo">メモ（なくてもOK）</label>
-  <input id="f-memo" class="text" value="${esc(f.memo)}" maxlength="60" autocomplete="off">
-  <div class="actions">
-    ${f.editingId ? '<button class="btn danger" data-act="delete-entry">削除</button><button class="btn ghost" data-act="cancel-edit">やめる</button>' : ''}
-    <button class="btn primary" data-act="save-entry">${f.editingId ? '保存する' : '記録する'}</button>
-  </div>`;
+  <div class="pad">
+    ${key(7)}${key(8)}${key(9)}<button class="key fn" data-act="key" data-k="del" aria-label="1文字消す">消す</button>
+    ${key(4)}${key(5)}${key(6)}<button class="key fn" data-act="key" data-k="clr" aria-label="金額をクリア">クリア</button>
+    ${key(1)}${key(2)}${key(3)}
+    <button class="stamp" data-act="save-entry" aria-label="${f.editingId ? '保存する' : '記録する'}"><span>${f.editingId ? '保存' : '記録'}</span></button>
+    ${key(0)}${key('00')}${key('000')}
+  </div>
+  ${f.editingId ? `<div class="actions">
+    <button class="btn danger" data-act="delete-entry">この記録を削除</button>
+    <button class="btn ghost" data-act="cancel-edit">修正をやめる</button>
+  </div>` : ''}`;
+}
+function stampSlip() {
+  const slip = $('#slip');
+  if (!slip) return;
+  const mark = document.createElement('span');
+  mark.className = 'sealmark';
+  mark.setAttribute('aria-hidden', 'true');
+  mark.textContent = '済';
+  slip.appendChild(mark);
+  setTimeout(() => mark.remove(), 1100);
 }
 
 /* ===== 履歴画面 ===== */
-function monthNav(suffix) {
+function monthNav(title) {
   return `<header class="monthnav">
     <button class="icon" data-act="prev-month" aria-label="前の月">${ICON_PREV}</button>
-    <h1>${st.y}年${st.m}月${suffix || ''}</h1>
+    <h1>${title || `${st.y}年${st.m}月`}</h1>
     <button class="icon" data-act="next-month" aria-label="次の月">${ICON_NEXT}</button>
   </header>`;
 }
-function entryRow(e) {
+function grandTotal(amount, label) {
+  return `<div class="grand"><span>${label || 'この月の支出'}</span><b class="num">${yen(amount)}</b></div>`;
+}
+function entryLine(e) {
   const c = findCat(e.catId);
   const sub = subName(c, e.subId);
-  return `<button class="row" data-act="edit-entry" data-id="${e.id}">
-    <i style="background:${c.color}"></i>
-    <span class="rowmain"><span>${esc(c.name)}${sub ? ' · ' + esc(sub) : ''}${e.fixedId ? '<em class="badge">固定</em>' : ''}</span>${e.memo ? `<small>${esc(e.memo)}</small>` : ''}</span>
-    <b>${yen(e.amount)}</b></button>`;
+  return `<button class="line" data-act="edit-entry" data-id="${e.id}" aria-label="${esc(c.name)}${sub ? ' ' + esc(sub) : ''} ${yen(e.amount)} を修正">
+    <i style="background:${c.color}"></i><span class="ln-name">${esc(sub || c.name)}</span>${e.memo ? `<span class="ln-memo">${esc(e.memo)}</span>` : ''}${e.fixedId ? '<em class="badge">固定</em>' : ''}<span class="dots"></span><span class="num">${yen(e.amount)}</span></button>`;
+}
+function receipt(date, items) {
+  return `<div class="receipt">
+    <div class="rc-head"><b>${dateLabel(date)}</b><span>${items.length}件</span></div>
+    ${items.map(entryLine).join('')}
+    <div class="rc-foot"><span>小計</span><span class="num">${yen(sum(items))}</span></div>
+  </div>`;
 }
 function renderHistory() {
   const es = sortEntries(monthEntries(st.y, st.m));
   let h = monthNav();
+  h += grandTotal(sum(es));
   h += `<div class="seg" role="tablist">
     <button class="${st.histMode === 'list' ? 'on' : ''}" data-act="hist-mode" data-mode="list" role="tab" aria-selected="${st.histMode === 'list'}">リスト</button>
     <button class="${st.histMode === 'cal' ? 'on' : ''}" data-act="hist-mode" data-mode="cal" role="tab" aria-selected="${st.histMode === 'cal'}">カレンダー</button>
   </div>`;
-  h += `<div class="totalcard"><span>この月の支出</span><b>${yen(sum(es))}</b></div>`;
 
   if (st.histMode === 'list') {
-    if (!es.length) return h + '<p class="empty">この月の記録はまだありません。<br>「入力」から記録してみましょう。</p>';
+    if (!es.length) return h + '<p class="empty">この月の記録はまだありません。<br>「つける」から記録してみましょう。</p>';
     const days = [];
     es.forEach((e) => {
       const last = days[days.length - 1];
       if (last && last.date === e.date) last.items.push(e);
       else days.push({ date: e.date, items: [e] });
     });
-    days.forEach((d) => {
-      h += `<p class="dayhead"><span>${dateLabel(d.date)}</span><span>${yen(sum(d.items))}</span></p>`;
-      h += `<div class="card list">${d.items.map(entryRow).join('')}</div>`;
-    });
-    h += '<p class="note" style="text-align:center">項目をタップすると修正・削除できます</p>';
+    h += days.map((d) => receipt(d.date, d.items)).join('');
+    h += '<p class="note center">項目をタップすると修正・削除できます</p>';
     return h;
   }
 
-  // カレンダー
+  // 方眼カレンダー（使った額が多い日ほど濃く）
   const first = new Date(st.y, st.m - 1, 1).getDay();
   const days = new Date(st.y, st.m, 0).getDate();
   const byDay = {};
   es.forEach((e) => { byDay[e.date] = (byDay[e.date] || 0) + e.amount; });
+  const max = Math.max(1, ...Object.values(byDay));
   const today = ymd(new Date());
-  let cells = WD.map((w, i) => `<div class="wd ${i === 0 ? 'sun' : i === 6 ? 'sat' : ''}">${w}</div>`).join('');
+  let cells = '';
   for (let i = 0; i < first; i++) cells += '<div class="day blank"></div>';
   for (let d = 1; d <= days; d++) {
     const ds = `${st.y}-${pad(st.m)}-${pad(d)}`;
     const col = (first + d - 1) % 7;
-    const cls = ['day', col === 0 ? 'sun' : '', col === 6 ? 'sat' : '', ds === st.selDay ? 'sel' : '', ds === today ? 'today' : ''].join(' ');
-    const amt = byDay[ds] ? short(byDay[ds]) : '';
-    cells += `<button class="${cls}" data-act="sel-day" data-date="${ds}" aria-label="${dateLabel(ds)} ${byDay[ds] ? yen(byDay[ds]) : '記録なし'}"><span class="dn">${d}</span><span class="da">${amt}</span></button>`;
+    const v = byDay[ds] || 0;
+    const lv = v ? Math.max(1, Math.ceil((v / max) * 4)) : 0;
+    const cls = ['day', `lv${lv}`, col === 0 ? 'sun' : '', col === 6 ? 'sat' : '', ds === st.selDay ? 'sel' : '', ds === today ? 'today' : '', ds > today ? 'future' : ''].join(' ');
+    cells += `<button class="${cls}" data-act="sel-day" data-date="${ds}" aria-label="${dateLabel(ds)} ${v ? yen(v) : '記録なし'}"><span class="dn">${d}</span><span class="da num">${v ? short(v) : ''}</span></button>`;
   }
-  h += `<div class="card cal"><div class="calgrid">${cells}</div></div>`;
+  const rest = (7 - ((first + days) % 7)) % 7;
+  for (let i = 0; i < rest; i++) cells += '<div class="day blank"></div>';
+  h += `<div class="cal">
+    <div class="wds">${WD.map((w, i) => `<span class="${i === 0 ? 'sun' : i === 6 ? 'sat' : ''}">${w}</span>`).join('')}</div>
+    <div class="calgrid">${cells}</div>
+  </div>
+  <div class="legend-lv" aria-hidden="true"><span>少</span><i class="lv0"></i><i class="lv1"></i><i class="lv2"></i><i class="lv3"></i><i class="lv4"></i><span>多</span></div>`;
 
-  const dayItems = es.filter((e) => e.date === st.selDay);
   if (st.selDay.startsWith(`${st.y}-${pad(st.m)}-`)) {
-    h += `<p class="dayhead"><span>${dateLabel(st.selDay)}の支出</span><span>${yen(sum(dayItems))}</span></p>`;
-    h += dayItems.length
-      ? `<div class="card list">${dayItems.map(entryRow).join('')}</div>`
-      : '<p class="empty" style="padding:12px">この日の記録はありません</p>';
-    h += '<button class="btn dashed" data-act="add-on-day">＋ この日の支出を記録</button>';
+    const dayItems = es.filter((e) => e.date === st.selDay);
+    h += dayItems.length ? receipt(st.selDay, dayItems) : `<p class="empty small">${dateLabel(st.selDay)}の記録はありません</p>`;
+    h += '<button class="btn dashed" data-act="add-on-day">＋ この日の支出をつける</button>';
   }
   return h;
 }
@@ -228,45 +263,33 @@ function renderGraph() {
   const byCat = {};
   es.forEach((e) => { byCat[e.catId] = (byCat[e.catId] || 0) + e.amount; });
   const rows = Object.keys(byCat).map((id) => ({ cat: findCat(id), amount: byCat[id] })).sort((a, b) => b.amount - a.amount);
-  if (!rows.find((r) => r.cat.id === st.graphCat)) st.graphCat = rows.length ? rows[0].cat.id : null;
+  if (st.graphCat !== 'none' && !rows.find((r) => r.cat.id === st.graphCat)) st.graphCat = rows.length ? rows[0].cat.id : null;
 
-  let h = monthNav('の内訳');
-  const R = 58, C = 2 * Math.PI * R;
-  let off = 0;
-  const arcs = rows.map((r) => {
-    const len = (r.amount / total) * C;
-    const s = `<circle cx="68" cy="68" r="${R}" stroke="${r.cat.color}" stroke-dasharray="${len.toFixed(2)} ${C.toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}"/>`;
-    off += len;
-    return s;
-  }).join('');
-  h += `<div class="card donutcard">
-    <div class="donut">
-      <svg role="img" aria-label="カテゴリ別の割合" width="136" height="136" viewBox="0 0 136 136">
-        <g transform="rotate(-90 68 68)" fill="none" stroke-width="18">
-          <circle cx="68" cy="68" r="${R}" stroke="var(--line2)"/>${arcs}
-        </g>
-      </svg>
-      <div class="center"><small>合計</small><b>${yen(total)}</b></div>
-    </div>
-    <div class="legend">
-      ${rows.length ? rows.map((r) => `<button class="leg ${r.cat.id === st.graphCat ? 'on' : ''}" data-act="graph-cat" data-id="${r.cat.id}"><i style="background:${r.cat.color}"></i><span>${esc(r.cat.name)}</span>${yen(r.amount)}</button>`).join('')
-        : '<p class="note">この月の記録はまだありません</p>'}
-    </div>
-  </div>`;
-
-  if (st.graphCat) {
-    const cat = findCat(st.graphCat);
-    const ce = es.filter((e) => e.catId === st.graphCat);
-    const bySub = {};
-    ce.forEach((e) => { const n = subName(cat, e.subId) || '指定なし'; bySub[n] = (bySub[n] || 0) + e.amount; });
-    const subs = Object.keys(bySub).map((n) => ({ n, a: bySub[n] })).sort((a, b) => b.a - a.a);
-    const max = subs.length ? subs[0].a : 1;
-    const catTotal = sum(ce);
-    h += `<div class="card subcard">
-      <div class="head"><h2>${esc(cat.name)}の内訳</h2><small>${Math.round((catTotal / total) * 100)}% · 上の一覧をタップで切替</small></div>
-      ${subs.map((s) => `<div class="sbrow"><p><span>${esc(s.n)}</span><span>${yen(s.a)}</span></p><div class="bar"><div style="width:${((s.a / max) * 100).toFixed(1)}%;background:${cat.color}"></div></div></div>`).join('')}
-    </div>`;
+  let h = monthNav(`${st.y}年${st.m}月は何に使った？`);
+  h += '<div class="sheetcard">';
+  h += grandTotal(total, '合計');
+  if (!rows.length) {
+    h += '<p class="empty small">この月の記録はまだありません</p>';
+  } else {
+    h += `<div class="band" role="img" aria-label="カテゴリ別の割合">${rows.map((r) => `<div style="flex:${r.amount} 1 0;background:${r.cat.color}"></div>`).join('')}</div>`;
+    h += '<div class="rank">';
+    rows.forEach((r) => {
+      const open = r.cat.id === st.graphCat;
+      h += `<button class="rrow${open ? ' on' : ''}" data-act="graph-cat" data-id="${r.cat.id}" aria-expanded="${open}">
+        <i style="background:${r.cat.color}"></i><span>${esc(r.cat.name)}</span><span class="dots"></span><span class="num">${yen(r.amount)}</span><span class="pct">${Math.round((r.amount / total) * 100)}%</span></button>`;
+      if (open) {
+        const bySub = {};
+        es.filter((e) => e.catId === r.cat.id).forEach((e) => {
+          const n = subName(r.cat, e.subId) || '指定なし';
+          bySub[n] = (bySub[n] || 0) + e.amount;
+        });
+        const subs = Object.keys(bySub).map((n) => ({ n, a: bySub[n] })).sort((a, b) => b.a - a.a);
+        h += `<div class="subs" style="border-color:${r.cat.color}">${subs.map((s) => `<div class="srow"><span>${esc(s.n)}</span><span class="dots"></span><span class="num">${yen(s.a)}</span></div>`).join('')}</div>`;
+      }
+    });
+    h += '</div>';
   }
+  h += '</div>';
 
   // 過去6か月
   const months = [];
@@ -276,12 +299,12 @@ function renderGraph() {
     months.push({ y, m, t: sum(monthEntries(y, m)) });
   }
   const mmax = Math.max(1, ...months.map((x) => x.t));
-  h += `<div class="card subcard">
+  h += `<div class="sheetcard">
     <h2>月ごとの支出</h2>
     <div class="months">
-      ${months.map((x, i) => `<button class="mbar ${i === 5 ? 'on' : ''}" data-act="goto-month" data-y="${x.y}" data-m="${x.m}" aria-label="${x.y}年${x.m}月 ${yen(x.t)}"><span>${x.t ? short(x.t) : ''}</span><div style="height:${Math.round((x.t / mmax) * 96)}px"></div></button>`).join('')}
+      ${months.map((x, i) => `<button class="mbar${i === 5 ? ' on' : ''}" data-act="goto-month" data-y="${x.y}" data-m="${x.m}" aria-label="${x.y}年${x.m}月 ${yen(x.t)}"><span class="num">${x.t ? short(x.t) : ''}</span><div style="height:${Math.round((x.t / mmax) * 72)}px"></div></button>`).join('')}
     </div>
-    <div class="mlabels">${months.map((x, i) => `<span style="${i === 5 ? 'color:var(--ink);font-weight:700' : ''}">${x.m}月</span>`).join('')}</div>
+    <div class="mlabels">${months.map((x, i) => `<span class="${i === 5 ? 'on' : ''}">${x.m}月</span>`).join('')}</div>
   </div>`;
   return h;
 }
@@ -501,6 +524,20 @@ function shiftMonth(delta) {
 }
 
 const actions = {
+  key(t) {
+    const k = t.dataset.k;
+    let a = st.form.amount;
+    if (k === 'del') a = a.slice(0, -1);
+    else if (k === 'clr') a = '';
+    else {
+      a = (a + k).replace(/^0+/, '');
+      if (a.length > 9) return;
+    }
+    st.form.amount = a;
+    const el = $('#amt');
+    el.textContent = '¥' + (a ? Number(a).toLocaleString('ja-JP') : '0');
+    el.classList.toggle('zero', !a);
+  },
   'pick-cat'(t) { st.form.catId = t.dataset.id; st.form.subId = null; render(); },
   'pick-sub'(t) { st.form.subId = st.form.subId === t.dataset.id ? null : t.dataset.id; render(); },
   'save-entry'() {
@@ -521,6 +558,7 @@ const actions = {
       toast(`${yen(amount)} を記録しました`);
       Object.assign(f, { amount: '', subId: null, memo: '' });
       render();
+      stampSlip();
     }
   },
   'delete-entry'() {
@@ -543,7 +581,7 @@ const actions = {
   'hist-mode'(t) { st.histMode = t.dataset.mode; render(); },
   'sel-day'(t) { st.selDay = t.dataset.date; render(); },
   'add-on-day'() { st.form = newForm(); st.form.date = st.selDay; go('input'); },
-  'graph-cat'(t) { st.graphCat = t.dataset.id; render(); },
+  'graph-cat'(t) { st.graphCat = st.graphCat === t.dataset.id ? 'none' : t.dataset.id; render(); },
   'goto-month'(t) { st.y = Number(t.dataset.y); st.m = Number(t.dataset.m); shiftMonth(0); },
   'toggle-cat'(t) { st.openCat = st.openCat === t.dataset.id ? null : t.dataset.id; render(); },
   'edit-cat'(t) {
