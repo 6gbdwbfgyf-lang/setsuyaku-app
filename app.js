@@ -26,6 +26,7 @@ function defaultData() {
 let data = null;
 try { data = JSON.parse(localStorage.getItem(KEY)); } catch (e) { data = null; }
 if (!isValidData(data)) data = defaultData();
+if (!Array.isArray(data.fixed)) data.fixed = [];
 
 function isValidData(d) {
   return d && Array.isArray(d.categories) && Array.isArray(d.entries);
@@ -64,6 +65,41 @@ function monthEntries(y, m) {
 }
 function sortEntries(list) {
   return list.slice().sort((a, b) => (a.date === b.date ? (b.created || 0) - (a.created || 0) : a.date < b.date ? 1 : -1));
+}
+
+/* ===== 固定費（毎月決まった日に自動で記録） ===== */
+const ym = (y, m) => `${y}-${pad(m)}`;
+function nextYm(s) {
+  const [y, m] = s.split('-').map(Number);
+  const d = new Date(y, m, 1);
+  return ym(d.getFullYear(), d.getMonth() + 1);
+}
+// 登録した日から見て、最初に記録する月（今月の日付が過ぎていれば来月から）
+function firstYmFor(day) {
+  const t = new Date();
+  const thisDay = Math.min(day, new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate());
+  if (thisDay >= t.getDate()) return ym(t.getFullYear(), t.getMonth() + 1);
+  const d = new Date(t.getFullYear(), t.getMonth() + 1, 1);
+  return ym(d.getFullYear(), d.getMonth() + 1);
+}
+// アプリを開いたときに、日付を過ぎた分をまとめて記録する
+function applyFixed() {
+  const t = new Date();
+  const cur = ym(t.getFullYear(), t.getMonth() + 1);
+  let added = 0;
+  data.fixed.forEach((f) => {
+    let guard = 0;
+    while (f.next <= cur && guard++ < 120) {
+      const [y, m] = f.next.split('-').map(Number);
+      const day = Math.min(f.day, new Date(y, m, 0).getDate());
+      if (f.next === cur && day > t.getDate()) break;
+      data.entries.push({ id: uid(), date: `${f.next}-${pad(day)}`, amount: f.amount, catId: f.catId, subId: f.subId, memo: f.name, created: Date.now(), fixedId: f.id });
+      added++;
+      f.next = nextYm(f.next);
+    }
+  });
+  if (added) save();
+  return added;
 }
 
 const ICON_PREV = '<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 5l-7 7 7 7"/></svg>';
@@ -129,7 +165,7 @@ function entryRow(e) {
   const sub = subName(c, e.subId);
   return `<button class="row" data-act="edit-entry" data-id="${e.id}">
     <i style="background:${c.color}"></i>
-    <span class="rowmain"><span>${esc(c.name)}${sub ? ' · ' + esc(sub) : ''}</span>${e.memo ? `<small>${esc(e.memo)}</small>` : ''}</span>
+    <span class="rowmain"><span>${esc(c.name)}${sub ? ' · ' + esc(sub) : ''}${e.fixedId ? '<em class="badge">固定</em>' : ''}</span>${e.memo ? `<small>${esc(e.memo)}</small>` : ''}</span>
     <b>${yen(e.amount)}</b></button>`;
 }
 function renderHistory() {
@@ -277,6 +313,9 @@ function renderSettings() {
   });
   h += `</div>
   <button class="btn dashed" data-act="add-cat">＋ 大カテゴリを追加</button>
+  `;
+  h += renderFixedSection();
+  h += `
   <h2 style="margin-top:10px">データのバックアップ</h2>
   <div class="grid2">
     <button class="btn" data-act="export">書き出す</button>
@@ -285,6 +324,95 @@ function renderSettings() {
   <p class="note">データはこのiPhoneの中だけに保存されています。月に1回くらい「書き出す」で「ファイル」アプリに保存しておくと、機種変更のときも安心です。</p>
   <p class="note">記録件数：${data.entries.length}件</p>`;
   return h;
+}
+
+function renderFixedSection() {
+  let h = '<h2 style="margin-top:10px">固定費（毎月自動で記録）</h2>';
+  if (data.fixed.length) {
+    const list = data.fixed.slice().sort((a, b) => a.day - b.day);
+    h += `<div class="card list">${list.map((f) => {
+      const c = findCat(f.catId);
+      const sub = subName(c, f.subId);
+      return `<button class="row" data-act="edit-fixed" data-id="${f.id}"><i style="background:${c.color}"></i>
+        <span class="rowmain"><span>${esc(f.name)}</span><small>毎月${f.day}日 · ${esc(c.name)}${sub ? ' · ' + esc(sub) : ''}</small></span>
+        <b>${yen(f.amount)}</b></button>`;
+    }).join('')}</div>`;
+    const monthly = data.fixed.reduce((a, f) => a + f.amount, 0);
+    h += `<p class="note">固定費の合計：毎月 ${yen(monthly)}</p>`;
+  } else {
+    h += '<p class="note">家賃やスマホ代など、毎月決まった支出を登録しておくと、その日に自動で記録されます。</p>';
+  }
+  h += '<button class="btn dashed" data-act="add-fixed">＋ 固定費を追加</button>';
+  h += '<p class="note">アプリを開いたときに、日付を過ぎた分がまとめて記録されます（しばらく開かなくても抜けません）。</p>';
+  return h;
+}
+
+function openFixedSheet(f) {
+  const isNew = !f;
+  const first = data.categories[0];
+  const v = f || { name: '', amount: '', day: new Date().getDate(), catId: first ? first.id : '', subId: null };
+  const subOpts = (catId, subId) => {
+    const c = data.categories.find((x) => x.id === catId);
+    return '<option value="">（なし）</option>' + (c ? c.subs.map((s) => `<option value="${s.id}" ${s.id === subId ? 'selected' : ''}>${esc(s.name)}</option>`).join('') : '');
+  };
+  const m = $('#modal');
+  m.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="m-title">
+    <h2 id="m-title">${isNew ? '固定費を追加' : '固定費を編集'}</h2>
+    <label class="label" for="x-name">名前</label>
+    <input id="x-name" class="text" value="${esc(v.name)}" maxlength="20" placeholder="例：家賃、スマホ代" autocomplete="off">
+    <div class="grid2">
+      <div class="field"><label class="label" for="x-amount">金額（円）</label>
+        <input id="x-amount" class="text" inputmode="numeric" value="${v.amount ? Number(v.amount).toLocaleString('ja-JP') : ''}" autocomplete="off"></div>
+      <div class="field"><label class="label" for="x-day">毎月の日付</label>
+        <select id="x-day" class="text">${Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}" ${i + 1 === v.day ? 'selected' : ''}>${i + 1}日</option>`).join('')}</select></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label class="label" for="x-cat">大カテゴリ</label>
+        <select id="x-cat" class="text">${data.categories.map((c) => `<option value="${c.id}" ${c.id === v.catId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+      <div class="field"><label class="label" for="x-sub">小カテゴリ</label>
+        <select id="x-sub" class="text">${subOpts(v.catId, v.subId)}</select></div>
+    </div>
+    <p class="note">${isNew ? '今月の日付がもう過ぎている場合は、来月から記録されます。29〜31日にした場合、その日がない月は月末に記録されます。' : '変更はこれから記録される分に反映されます（これまでの記録はそのままです）。'}</p>
+    <div class="actions">
+      ${isNew ? '' : '<button class="btn danger" data-m="delete">削除</button>'}
+      <button class="btn ghost" data-m="cancel">キャンセル</button>
+      <button class="btn primary" data-m="save">保存</button>
+    </div>
+  </div>`;
+  m.hidden = false;
+  $('#x-cat').onchange = (e) => { $('#x-sub').innerHTML = subOpts(e.target.value, null); };
+  $('#x-amount').oninput = (e) => {
+    const d = e.target.value.replace(/[^0-9]/g, '').replace(/^0+/, '').slice(0, 9);
+    e.target.value = d ? Number(d).toLocaleString('ja-JP') : '';
+  };
+  m.onclick = (ev) => {
+    if (ev.target === m) return closeSheet();
+    const b = ev.target.closest('[data-m]');
+    if (!b) return;
+    const a = b.dataset.m;
+    if (a === 'cancel') return closeSheet();
+    if (a === 'delete') {
+      if (!confirm(`固定費「${f.name}」を削除しますか？\nこれまでに記録された分は残ります。`)) return;
+      data.fixed = data.fixed.filter((x) => x.id !== f.id);
+      save();
+      closeSheet();
+      return toast('削除しました');
+    }
+    const name = $('#x-name').value.trim();
+    const amount = parseInt($('#x-amount').value.replace(/[^0-9]/g, ''), 10);
+    const day = Number($('#x-day').value);
+    const catId = $('#x-cat').value;
+    const subId = $('#x-sub').value || null;
+    if (!name) return toast('名前を入力してください');
+    if (!amount) return toast('金額を入力してください');
+    if (!catId) return toast('カテゴリを選んでください');
+    if (isNew) data.fixed.push({ id: uid(), name, amount, day, catId, subId, next: firstYmFor(day) });
+    else Object.assign(f, { name, amount, day, catId, subId });
+    save();
+    const n = applyFixed();
+    closeSheet();
+    toast(n ? `保存して、${n}件記録しました` : '保存しました');
+  };
 }
 
 /* ===== 描画 ===== */
@@ -492,6 +620,11 @@ const actions = {
       },
     });
   },
+  'add-fixed'() { openFixedSheet(null); },
+  'edit-fixed'(t) {
+    const f = data.fixed.find((x) => x.id === t.dataset.id);
+    if (f) openFixedSheet(f);
+  },
   async export() {
     const name = `setsuyaku-backup-${ymd(new Date())}.json`;
     const file = new File([JSON.stringify(data)], name, { type: 'application/json' });
@@ -546,6 +679,7 @@ $('#importfile').addEventListener('change', async (ev) => {
     if (!isValidData(d)) throw new Error('bad');
     if (!confirm(`バックアップ（記録${d.entries.length}件）を読み込みますか？\n今のデータは置き換わります。`)) return;
     data = d;
+    if (!Array.isArray(data.fixed)) data.fixed = [];
     save();
     st.form = newForm();
     st.openCat = null;
@@ -556,7 +690,16 @@ $('#importfile').addEventListener('change', async (ev) => {
   }
 });
 
+const autoAdded = applyFixed();
 render();
+if (autoAdded) toast(`固定費を${autoAdded}件記録しました`);
+
+// ホーム画面から戻ってきたときにも固定費をチェック
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  const n = applyFixed();
+  if (n) { render(); toast(`固定費を${n}件記録しました`); }
+});
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
