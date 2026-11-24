@@ -257,37 +257,73 @@ function renderHistory() {
 }
 
 /* ===== グラフ画面 ===== */
+function pctOf(a, t) {
+  const p = (a / t) * 100;
+  return (p > 0 && p < 1 ? '1%未満' : Math.round(p) + '%');
+}
+// ドーナツ型の円グラフ（SVG）
+function donut(items, total, title, subtitle) {
+  const R = 100, r = 58, C = 120;
+  const pt = (rad, ang) => `${(C + rad * Math.sin(ang)).toFixed(2)} ${(C - rad * Math.cos(ang)).toFixed(2)}`;
+  let a0 = 0, paths = '';
+  items.forEach((it) => {
+    const frac = it.amount / total;
+    const attrs = `fill="${it.color}" fill-opacity="${it.op}" ${it.act ? ` data-act="${it.act}"` : ''}${it.id ? ` data-id="${it.id}"` : ''} aria-label="${esc(it.label)} ${yen(it.amount)} ${pctOf(it.amount, total)}"`;
+    if (frac >= 0.9999) {
+      paths += `<path ${attrs} fill-rule="evenodd" d="M${pt(R, 0)}A${R} ${R} 0 1 1 ${pt(R, Math.PI)}A${R} ${R} 0 1 1 ${pt(R, 0)}ZM${pt(r, 0)}A${r} ${r} 0 1 0 ${pt(r, Math.PI)}A${r} ${r} 0 1 0 ${pt(r, 0)}Z"/>`;
+    } else {
+      const a1 = a0 + frac * 2 * Math.PI;
+      const big = a1 - a0 > Math.PI ? 1 : 0;
+      paths += `<path ${attrs} d="M${pt(R, a0)}A${R} ${R} 0 ${big} 1 ${pt(R, a1)}L${pt(r, a1)}A${r} ${r} 0 ${big} 0 ${pt(r, a0)}Z"/>`;
+      a0 = a1;
+    }
+  });
+  return `<div class="donut">
+    <svg viewBox="0 0 240 240" role="img" aria-label="${esc(title)}の内訳">${paths}</svg>
+    <div class="donut-c"><span>${esc(title)}</span><b class="num">${yen(total)}</b>${subtitle ? `<small>${subtitle}</small>` : ''}</div>
+  </div>`;
+}
+function legend(items, total, tappable) {
+  return '<div class="rank">' + items.map((it) => {
+    const inner = `<i style="background:${it.color};opacity:${it.op}"></i><span>${esc(it.label)}</span><span class="dots"></span><span class="num">${yen(it.amount)}</span><span class="pct">${pctOf(it.amount, total)}</span>`;
+    return tappable
+      ? `<button class="rrow" data-act="${it.act}" data-id="${it.id}">${inner}<span class="chev">${ICON_NEXT}</span></button>`
+      : `<div class="rrow">${inner}</div>`;
+  }).join('') + '</div>';
+}
 function renderGraph() {
   const es = monthEntries(st.y, st.m);
   const total = sum(es);
   const byCat = {};
   es.forEach((e) => { byCat[e.catId] = (byCat[e.catId] || 0) + e.amount; });
   const rows = Object.keys(byCat).map((id) => ({ cat: findCat(id), amount: byCat[id] })).sort((a, b) => b.amount - a.amount);
-  if (st.graphCat !== 'none' && !rows.find((r) => r.cat.id === st.graphCat)) st.graphCat = rows.length ? rows[0].cat.id : null;
+  const cur = st.graphCat && rows.find((r) => r.cat.id === st.graphCat);
+  if (!cur) st.graphCat = null;
 
   let h = monthNav(`${st.y}年${st.m}月は何に使った？`);
   h += '<div class="sheetcard">';
-  h += grandTotal(total, '合計');
   if (!rows.length) {
+    h += grandTotal(total, '合計');
     h += '<p class="empty small">この月の記録はまだありません</p>';
+  } else if (!cur) {
+    // 大カテゴリの円グラフ
+    const items = rows.map((r) => ({ label: r.cat.name, amount: r.amount, color: r.cat.color, op: 1, act: 'graph-cat', id: r.cat.id }));
+    h += donut(items, total, '合計');
+    h += '<p class="note center">タップすると小カテゴリの内訳が見られます</p>';
+    h += legend(items, total, true);
   } else {
-    h += `<div class="band" role="img" aria-label="カテゴリ別の割合">${rows.map((r) => `<div style="flex:${r.amount} 1 0;background:${r.cat.color}"></div>`).join('')}</div>`;
-    h += '<div class="rank">';
-    rows.forEach((r) => {
-      const open = r.cat.id === st.graphCat;
-      h += `<button class="rrow${open ? ' on' : ''}" data-act="graph-cat" data-id="${r.cat.id}" aria-expanded="${open}">
-        <i style="background:${r.cat.color}"></i><span>${esc(r.cat.name)}</span><span class="dots"></span><span class="num">${yen(r.amount)}</span><span class="pct">${Math.round((r.amount / total) * 100)}%</span></button>`;
-      if (open) {
-        const bySub = {};
-        es.filter((e) => e.catId === r.cat.id).forEach((e) => {
-          const n = subName(r.cat, e.subId) || '指定なし';
-          bySub[n] = (bySub[n] || 0) + e.amount;
-        });
-        const subs = Object.keys(bySub).map((n) => ({ n, a: bySub[n] })).sort((a, b) => b.a - a.a);
-        h += `<div class="subs" style="border-color:${r.cat.color}">${subs.map((s) => `<div class="srow"><span>${esc(s.n)}</span><span class="dots"></span><span class="num">${yen(s.a)}</span></div>`).join('')}</div>`;
-      }
+    // 小カテゴリの円グラフ
+    const bySub = {};
+    es.filter((e) => e.catId === cur.cat.id).forEach((e) => {
+      const n = subName(cur.cat, e.subId) || '指定なし';
+      bySub[n] = (bySub[n] || 0) + e.amount;
     });
-    h += '</div>';
+    const OPS = [1, 0.72, 0.5, 0.34, 0.22];
+    const items = Object.keys(bySub).map((n) => ({ label: n, amount: bySub[n] })).sort((a, b) => b.amount - a.amount)
+      .map((x, i) => ({ ...x, color: cur.cat.color, op: OPS[i % OPS.length] }));
+    h += `<button class="backlink" data-act="graph-back">${ICON_PREV}<span>全体のグラフに戻る</span></button>`;
+    h += donut(items, cur.amount, cur.cat.name, `全体の${pctOf(cur.amount, total)}`);
+    h += legend(items, cur.amount, false);
   }
   h += '</div>';
 
@@ -581,7 +617,8 @@ const actions = {
   'hist-mode'(t) { st.histMode = t.dataset.mode; render(); },
   'sel-day'(t) { st.selDay = t.dataset.date; render(); },
   'add-on-day'() { st.form = newForm(); st.form.date = st.selDay; go('input'); },
-  'graph-cat'(t) { st.graphCat = st.graphCat === t.dataset.id ? 'none' : t.dataset.id; render(); },
+  'graph-cat'(t) { st.graphCat = t.dataset.id; render(); window.scrollTo(0, 0); },
+  'graph-back'() { st.graphCat = null; render(); },
   'goto-month'(t) { st.y = Number(t.dataset.y); st.m = Number(t.dataset.m); shiftMonth(0); },
   'toggle-cat'(t) { st.openCat = st.openCat === t.dataset.id ? null : t.dataset.id; render(); },
   'edit-cat'(t) {

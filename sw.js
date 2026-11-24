@@ -1,5 +1,5 @@
 // オフラインでも開けるようにするための仕組み（ネット優先、つながらない時は保存済みのものを使う）
-const CACHE = 'setsuyaku-v3';
+const CACHE = 'setsuyaku-v4';
 const FILES = ['./', './index.html', './style.css', './app.js', './manifest.webmanifest',
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 
